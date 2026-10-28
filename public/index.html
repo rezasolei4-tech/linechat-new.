@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LineChat | ورود</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: Tahoma, 'Vazir', sans-serif;
+            background: linear-gradient(135deg, #0b1a12 0%, #1a2e23 100%);
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+        }
+        .container {
+            width: 90%;
+            max-width: 400px;
+            background: rgba(30, 41, 59, 0.85);
+            backdrop-filter: blur(12px);
+            border-radius: 20px;
+            padding: 40px 30px;
+            box-shadow: 0 15px 40px rgba(0,0,0,0.6);
+            border: 1px solid rgba(6, 199, 85, 0.2);
+            text-align: center;
+        }
+        .logo {
+            width: 70px;
+            height: 70px;
+            background: #06C755;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 0 auto 20px;
+            font-size: 32px;
+            font-weight: bold;
+            color: white;
+            box-shadow: 0 0 20px rgba(6, 199, 85, 0.4);
+        }
+        h1 {
+            font-size: 24px;
+            margin-bottom: 5px;
+        }
+        p.subtitle {
+            color: #94a3b8;
+            font-size: 13px;
+            margin-bottom: 25px;
+        }
+        input {
+            width: 100%;
+            padding: 14px;
+            margin-bottom: 15px;
+            border: none;
+            border-radius: 12px;
+            background: rgba(15, 23, 42, 0.9);
+            color: white;
+            font-size: 14px;
+            outline: none;
+            border: 1px solid rgba(255,255,255,0.1);
+            transition: border 0.3s;
+        }
+        input:focus {
+            border-color: #06C755;
+        }
+        button {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 12px;
+            background: #06C755;
+            color: white;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.3s;
+            margin-top: 5px;
+        }
+        button:hover { background: #05a648; }
+        .switch-mode {
+            margin-top: 20px;
+            font-size: 13px;
+            color: #94a3b8;
+        }
+        .switch-mode a {
+            color: #06C755;
+            text-decoration: none;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .error-msg {
+            color: #ef4444;
+            font-size: 13px;
+            margin-top: 10px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">L</div>
+        <h1>LineChat</h1>
+        <p class="subtitle">خط ارتباط امن تو</p>
+
+        <input type="text" id="username" placeholder="نام کاربری" />
+        <input type="password" id="password" placeholder="رمز عبور" />
+        <button id="submitBtn" onclick="submitForm()">ورود</button>
+        <div class="error-msg" id="errorMsg"></div>
+
+        <div class="switch-mode">
+            حساب نداری؟ <a onclick="toggleMode()" id="switchText">ثبت‌نام کن</a>
+        </div>
+    </div>
+
+    <script>
+        let isLoginMode = true;
+        const errorMsg = document.getElementById('errorMsg');
+        const submitBtn = document.getElementById('submitBtn');
+        const switchText = document.getElementById('switchText');
+
+        function toggleMode() {
+            isLoginMode = !isLoginMode;
+            submitBtn.textContent = isLoginMode ? 'ورود' : 'ثبت‌نام';
+            switchText.textContent = isLoginMode ? 'ثبت‌نام کن' : 'وارد شو';
+            errorMsg.style.display = 'none';
+        }
+
+        async function submitForm() {
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value.trim();
+            errorMsg.style.display = 'none';
+
+            if (!username || !password) {
+                errorMsg.textContent = 'لطفاً همه فیلدها را پر کنید.';
+                errorMsg.style.display = 'block';
+                return;
+            }
+
+            const endpoint = isLoginMode ? '/api/login' : '/api/register';
+
+            try {
+                const res = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                const data = await res.json();
+
+                if (!res.ok) {
+                    errorMsg.textContent = data.error || 'خطایی رخ داد.';
+                    errorMsg.style.display = 'block';
+                    return;
+                }
+
+                if (isLoginMode) {
+                    localStorage.setItem('token', data.token);
+                    localStorage.setItem('username', data.username);
+                    window.location.href = '/chat.html';
+                } else {
+                    errorMsg.textContent = 'ثبت‌نام موفق! حالا وارد شو.';
+                    errorMsg.style.color = '#06C755';
+                    errorMsg.style.display = 'block';
+                    toggleMode();
+                }
+            } catch (err) {
+                errorMsg.textContent = 'خطا در ارتباط با سرور.';
+                errorMsg.style.display = 'block';
+            }
+        }
+    </script>
+</body>
+</html>
