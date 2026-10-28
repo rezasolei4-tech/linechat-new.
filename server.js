@@ -4,8 +4,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const initSqlJs = require('sql.js');
-const fs = require('fs');
+const { Pool } = require('pg');
 const sanitizeHtml = require('sanitize-html');
 
 const app = express();
@@ -15,67 +14,67 @@ const io = new Server(server, { cors: { origin: '*' } });
 app.use(express.json());
 app.use(express.static('public'));
 
-const DB_FILE = 'linechat.db';
-let db;
+// اتصال به دیتابیس Supabase
+const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false }
+});
 
 const MESSAGE_LIMIT = 20;
 const RATE_WINDOW = 60000;
 
 async function initDB() {
-    const SQL = await initSqlJs();
-    if (fs.existsSync(DB_FILE)) db = new SQL.Database(fs.readFileSync(DB_FILE));
-    else db = new SQL.Database();
-
-    db.run(`CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE NOT NULL,
-        passwordHash TEXT NOT NULL,
-        lastSeen DATETIME
-    )`);
-
-    db.run(`CREATE TABLE IF NOT EXISTS messages (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        sender TEXT NOT NULL,
-        text TEXT NOT NULL,
-        time TEXT NOT NULL
-    )`);
-
-    db.run(`CREATE TABLE IF NOT EXISTS groups (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        owner TEXT NOT NULL,
-        type TEXT DEFAULT 'group',
-        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
-    )`);
-
-    db.run(`CREATE TABLE IF NOT EXISTS group_members (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        groupId INTEGER NOT NULL,
-        username TEXT NOT NULL,
-        role TEXT DEFAULT 'member'
-    )`);
-
-    db.run(`CREATE TABLE IF NOT EXISTS group_messages (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        groupId INTEGER NOT NULL,
-        sender TEXT NOT NULL,
-        text TEXT NOT NULL,
-        time TEXT NOT NULL
-    )`);
-
-    db.run(`CREATE TABLE IF NOT EXISTS contacts (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        owner TEXT NOT NULL,
-        contactUsername TEXT NOT NULL,
-        UNIQUE(owner, contactUsername)
-    )`);
-
-    saveDB();
-    console.log('دیتابیس آماده شد.');
-}
-
-function saveDB() {
-    fs.writeFileSync(DB_FILE, Buffer.from(db.export()));
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS users (
+            id SERIAL PRIMARY KEY,
+            username TEXT UNIQUE NOT NULL,
+            passwordHash TEXT NOT NULL,
+            lastSeen TIMESTAMPTZ
+        )
+    `);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS messages (
+            id SERIAL PRIMARY KEY,
+            sender TEXT NOT NULL,
+            text TEXT NOT NULL,
+            time TEXT NOT NULL
+        )
+    `);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS groups (
+            id SERIAL PRIMARY KEY,
+            name TEXT NOT NULL,
+            owner TEXT NOT NULL,
+            type TEXT DEFAULT 'group',
+            createdAt TIMESTAMPTZ DEFAULT NOW()
+        )
+    `);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS group_members (
+            id SERIAL PRIMARY KEY,
+            groupId INTEGER NOT NULL,
+            username TEXT NOT NULL,
+            role TEXT DEFAULT 'member'
+        )
+    `);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS group_messages (
+            id SERIAL PRIMARY KEY,
+            groupId INTEGER NOT NULL,
+            sender TEXT NOT NULL,
+            text TEXT NOT NULL,
+            time TEXT NOT NULL
+        )
+    `);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS contacts (
+            id SERIAL PRIMARY KEY,
+            owner TEXT NOT NULL,
+            contactUsername TEXT NOT NULL,
+            UNIQUE(owner, contactUsername)
+        )
+    `);
+    console.log('دیتابیس Supabase آماده شد.');
 }
 
 function cleanText(text) {
@@ -87,26 +86,21 @@ app.post('/api/register', async (req, res) => {
     if (!username || !password) return res.status(400).json({ error: 'همه فیلدها الزامی است.' });
     if (password.length < 4) return res.status(400).json({ error: 'رمز حداقل ۴ کاراکتر.' });
 
-    const stmt = db.prepare('SELECT * FROM users WHERE username = ?');
-    stmt.bind([username]);
-    if (stmt.step()) { stmt.free(); return res.status(400).json({ error: 'نام کاربری تکراری است.' }); }
-    stmt.free();
+    const existing = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
+    if (existing.rows.length > 0) return res.status(400).json({ error: 'نام کاربری تکراری است.' });
 
     const hash = await bcrypt.hash(password, 12);
-    db.run('INSERT INTO users (username, passwordHash) VALUES (?, ?)', [username, hash]);
-    saveDB();
+    await pool.query('INSERT INTO users (username, passwordHash) VALUES ($1, $2)', [username, hash]);
     res.json({ success: true });
 });
 
 app.post('/api/login', async (req, res) => {
     const { username, password } = req.body;
-    const stmt = db.prepare('SELECT * FROM users WHERE username = ?');
-    stmt.bind([username]);
-    if (!stmt.step()) { stmt.free(); return res.status(401).json({ error: 'نام کاربری یا رمز اشتباه.' }); }
-    const user = stmt.getAsObject();
-    stmt.free();
+    const result = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
+    if (result.rows.length === 0) return res.status(401).json({ error: 'نام کاربری یا رمز اشتباه.' });
+    const user = result.rows[0];
 
-    if (!(await bcrypt.compare(password, user.passwordHash))) {
+    if (!(await bcrypt.compare(password, user.passwordhash))) {
         return res.status(401).json({ error: 'نام کاربری یا رمز اشتباه.' });
     }
     const token = jwt.sign({ username }, process.env.JWT_SECRET, { expiresIn: '7d' });
@@ -130,12 +124,11 @@ function formatIranTime(date) {
     return d.toLocaleString('fa-IR', { timeZone: 'Asia/Tehran', hour: '2-digit', minute: '2-digit', year: 'numeric', month: '2-digit', day: '2-digit' });
 }
 
-io.on('connection', (socket) => {
+io.on('connection', async (socket) => {
     const username = socket.username;
     onlineUsers.set(username, socket.id);
 
-    db.run('UPDATE users SET lastSeen = ? WHERE username = ?', [new Date().toISOString(), username]);
-    saveDB();
+    await pool.query('UPDATE users SET lastSeen = $1 WHERE username = $2', [new Date().toISOString(), username]);
 
     io.emit('onlineUsers', Array.from(onlineUsers.keys()));
     broadcastUsersStatus();
@@ -153,136 +146,103 @@ io.on('connection', (socket) => {
         return messageCount <= MESSAGE_LIMIT;
     }
 
-    const stmt = db.prepare('SELECT * FROM messages ORDER BY id DESC LIMIT 50');
-    const msgs = [];
-    while (stmt.step()) msgs.push(stmt.getAsObject());
-    stmt.free();
-    socket.emit('previousMessages', msgs.reverse());
+    const msgsResult = await pool.query('SELECT * FROM messages ORDER BY id DESC LIMIT 50');
+    socket.emit('previousMessages', msgsResult.rows.reverse());
 
-    socket.on('getContacts', (callback) => {
-        const s = db.prepare(`
+    socket.on('getContacts', async (callback) => {
+        const result = await pool.query(`
             SELECT c.contactUsername as username, u.lastSeen
             FROM contacts c
             LEFT JOIN users u ON c.contactUsername = u.username
-            WHERE c.owner = ?
-        `);
-        s.bind([username]);
-        const contacts = [];
-        while (s.step()) {
-            const row = s.getAsObject();
-            contacts.push({
-                username: row.username,
-                online: onlineUsers.has(row.username),
-                lastSeen: onlineUsers.has(row.username) ? 'آنلاین' : formatIranTime(row.lastSeen)
-            });
-        }
-        s.free();
+            WHERE c.owner = $1
+        `, [username]);
+        const contacts = result.rows.map(row => ({
+            username: row.username,
+            online: onlineUsers.has(row.username),
+            lastSeen: onlineUsers.has(row.username) ? 'آنلاین' : formatIranTime(row.lastseen)
+        }));
         callback(contacts);
     });
 
-    socket.on('addContact', (contactUsername, callback) => {
+    socket.on('addContact', async (contactUsername, callback) => {
         if (!contactUsername || contactUsername === username) return callback({ error: 'نام کاربری معتبر نیست.' });
-        const u = db.prepare('SELECT * FROM users WHERE username = ?');
-        u.bind([contactUsername]);
-        if (!u.step()) { u.free(); return callback({ error: 'کاربری با این نام وجود ندارد.' }); }
-        u.free();
+        const userCheck = await pool.query('SELECT * FROM users WHERE username = $1', [contactUsername]);
+        if (userCheck.rows.length === 0) return callback({ error: 'کاربری با این نام وجود ندارد.' });
 
-        const c = db.prepare('SELECT * FROM contacts WHERE owner = ? AND contactUsername = ?');
-        c.bind([username, contactUsername]);
-        if (c.step()) { c.free(); return callback({ error: 'این کاربر قبلاً در مخاطبین شماست.' }); }
-        c.free();
+        const check = await pool.query('SELECT * FROM contacts WHERE owner = $1 AND contactUsername = $2', [username, contactUsername]);
+        if (check.rows.length > 0) return callback({ error: 'این کاربر قبلاً در مخاطبین شماست.' });
 
-        db.run('INSERT INTO contacts (owner, contactUsername) VALUES (?, ?)', [username, contactUsername]);
-        saveDB();
+        await pool.query('INSERT INTO contacts (owner, contactUsername) VALUES ($1, $2)', [username, contactUsername]);
         callback({ success: true });
     });
 
-    socket.on('sendMessage', (text) => {
+    socket.on('sendMessage', async (text) => {
         if (!text || !text.trim()) return;
         if (!checkRateLimit()) return socket.emit('error', 'شما خیلی سریع پیام می‌فرستید. لطفاً کمی صبر کنید.');
         const clean = cleanText(text);
         if (!clean) return;
         const time = new Date().toLocaleTimeString('fa-IR');
-        db.run('INSERT INTO messages (sender, text, time) VALUES (?, ?, ?)', [username, clean, time]);
-        saveDB();
+        await pool.query('INSERT INTO messages (sender, text, time) VALUES ($1, $2, $3)', [username, clean, time]);
         io.emit('newMessage', { sender: username, text: clean, time });
     });
 
-    socket.on('createGroup', ({ name, type, members }, callback) => {
+    socket.on('createGroup', async ({ name, type, members }, callback) => {
         if (!name || !name.trim()) return callback({ error: 'نام گروه الزامی است.' });
         if (!members || members.length === 0) return callback({ error: 'حداقل یک عضو انتخاب کنید.' });
 
         const cleanName = cleanText(name);
-        db.run('INSERT INTO groups (name, owner, type) VALUES (?, ?, ?)', [cleanName, username, type || 'group']);
-        const groupId = db.exec('SELECT last_insert_rowid()')[0].values[0][0];
+        const groupResult = await pool.query('INSERT INTO groups (name, owner, type) VALUES ($1, $2, $3) RETURNING id', [cleanName, username, type || 'group']);
+        const groupId = groupResult.rows[0].id;
 
-        db.run('INSERT INTO group_members (groupId, username, role) VALUES (?, ?, ?)', [groupId, username, 'admin']);
-        members.forEach(m => {
+        await pool.query('INSERT INTO group_members (groupId, username, role) VALUES ($1, $2, $3)', [groupId, username, 'admin']);
+        for (const m of members) {
             if (m !== username) {
-                db.run('INSERT INTO group_members (groupId, username, role) VALUES (?, ?, ?)', [groupId, m, 'member']);
+                await pool.query('INSERT INTO group_members (groupId, username, role) VALUES ($1, $2, $3)', [groupId, m, 'member']);
             }
-        });
-        saveDB();
+        }
         callback({ success: true, groupId, name: cleanName, type: type || 'group' });
     });
 
-    socket.on('getMyGroups', (callback) => {
-        const s = db.prepare(`SELECT g.* FROM groups g JOIN group_members gm ON g.id = gm.groupId WHERE gm.username = ?`);
-        s.bind([username]);
-        const groups = [];
-        while (s.step()) groups.push(s.getAsObject());
-        s.free();
-        callback(groups);
+    socket.on('getMyGroups', async (callback) => {
+        const result = await pool.query(`SELECT g.* FROM groups g JOIN group_members gm ON g.id = gm.groupId WHERE gm.username = $1`, [username]);
+        callback(result.rows);
     });
 
     socket.on('joinGroupRoom', (groupId) => socket.join(`group_${groupId}`));
 
-    socket.on('getGroupMessages', (groupId, callback) => {
-        const s = db.prepare('SELECT * FROM group_messages WHERE groupId = ? ORDER BY id DESC LIMIT 50');
-        s.bind([groupId]);
-        const msgs = [];
-        while (s.step()) msgs.push(s.getAsObject());
-        s.free();
-        callback(msgs.reverse());
+    socket.on('getGroupMessages', async (groupId, callback) => {
+        const result = await pool.query('SELECT * FROM group_messages WHERE groupId = $1 ORDER BY id DESC LIMIT 50', [groupId]);
+        callback(result.rows.reverse());
     });
 
-    socket.on('sendGroupMessage', ({ groupId, text }) => {
+    socket.on('sendGroupMessage', async ({ groupId, text }) => {
         if (!text || !text.trim()) return;
         if (!checkRateLimit()) return socket.emit('error', 'شما خیلی سریع پیام می‌فرستید. لطفاً کمی صبر کنید.');
-        const check = db.prepare('SELECT * FROM group_members WHERE groupId = ? AND username = ?');
-        check.bind([groupId, username]);
-        if (!check.step()) { check.free(); return; }
-        check.free();
+        const check = await pool.query('SELECT * FROM group_members WHERE groupId = $1 AND username = $2', [groupId, username]);
+        if (check.rows.length === 0) return;
 
         const clean = cleanText(text);
         if (!clean) return;
         const time = new Date().toLocaleTimeString('fa-IR');
-        db.run('INSERT INTO group_messages (groupId, sender, text, time) VALUES (?, ?, ?, ?)', [groupId, username, clean, time]);
-        saveDB();
+        await pool.query('INSERT INTO group_messages (groupId, sender, text, time) VALUES ($1, $2, $3, $4)', [groupId, username, clean, time]);
         io.to(`group_${groupId}`).emit('newGroupMessage', { groupId, sender: username, text: clean, time });
     });
 
-    socket.on('disconnect', () => {
+    socket.on('disconnect', async () => {
         onlineUsers.delete(username);
-        db.run('UPDATE users SET lastSeen = ? WHERE username = ?', [new Date().toISOString(), username]);
-        saveDB();
+        await pool.query('UPDATE users SET lastSeen = $1 WHERE username = $2', [new Date().toISOString(), username]);
         io.emit('onlineUsers', Array.from(onlineUsers.keys()));
         broadcastUsersStatus();
     });
 });
 
-function broadcastUsersStatus() {
-    const s = db.prepare('SELECT username, lastSeen FROM users');
-    const users = [];
-    while (s.step()) {
-        const row = s.getAsObject();
-        users.push({
-            username: row.username,
-            online: onlineUsers.has(row.username),
-            lastSeen: onlineUsers.has(row.username) ? 'آنلاین' : formatIranTime(row.lastSeen)
-        });
-    }
-    s.free();
+async function broadcastUsersStatus() {
+    const result = await pool.query('SELECT username, lastSeen FROM users');
+    const users = result.rows.map(row => ({
+        username: row.username,
+        online: onlineUsers.has(row.username),
+        lastSeen: onlineUsers.has(row.username) ? 'آنلاین' : formatIranTime(row.lastseen)
+    }));
     io.emit('usersStatus', users);
 }
 
