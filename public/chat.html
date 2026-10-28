@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LineChat | چت</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --bg-main: #0b1a12;
+            --bg-secondary: rgba(30, 41, 59, 0.85);
+            --text-main: #ffffff;
+            --text-secondary: #94a3b8;
+            --accent: #06C755;
+            --msg-other: rgba(51, 65, 85, 0.9);
+        }
+        body.light {
+            --bg-main: #f0f2f5;
+            --bg-secondary: rgba(255, 255, 255, 0.95);
+            --text-main: #1e293b;
+            --text-secondary: #64748b;
+            --msg-other: #e2e8f0;
+        }
+        body {
+            font-family: Tahoma, 'Vazir', sans-serif;
+            background: var(--bg-main);
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: var(--text-main);
+            overflow: hidden;
+            transition: background 0.3s, color 0.3s;
+        }
+        .app {
+            width: 100%;
+            max-width: 900px;
+            height: 90vh;
+            display: flex;
+            background: var(--bg-secondary);
+            backdrop-filter: blur(12px);
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 15px 40px rgba(0,0,0,0.6);
+            border: 1px solid rgba(6, 199, 85, 0.15);
+        }
+        .sidebar {
+            width: 280px;
+            background: rgba(15, 23, 42, 0.7);
+            border-left: 1px solid rgba(255,255,255,0.05);
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+        body.light .sidebar { background: rgba(240, 242, 245, 0.9); }
+        .sidebar-header {
+            padding: 20px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .logo-small {
+            width: 36px; height: 36px; background: var(--accent);
+            border-radius: 50%; display: flex; justify-content: center;
+            align-items: center; font-weight: bold; font-size: 18px; color: white;
+            box-shadow: 0 0 10px rgba(6, 199, 85, 0.4);
+        }
+        .sidebar-header h2 { font-size: 16px; }
+        .sidebar-tabs {
+            display: flex; padding: 10px; gap: 5px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .tab-btn {
+            flex: 1; padding: 8px; border: none; border-radius: 8px;
+            background: transparent; color: var(--text-secondary);
+            font-size: 12px; cursor: pointer; font-weight: bold;
+        }
+        .tab-btn.active { background: rgba(6, 199, 85, 0.15); color: var(--accent); }
+        .tab-content { flex: 1; overflow-y: auto; padding: 10px; }
+        .online-item, .group-item, .contact-item {
+            padding: 10px 14px; border-radius: 10px; margin-bottom: 5px;
+            display: flex; align-items: center; gap: 10px;
+            font-size: 14px; color: var(--text-secondary); cursor: pointer;
+            position: relative;
+        }
+        .online-item:hover, .group-item:hover, .contact-item:hover { background: rgba(6, 199, 85, 0.1); }
+        .group-item.active, .contact-item.active { background: rgba(6, 199, 85, 0.2); color: var(--accent); }
+        .online-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+        .online-dot.online { background: #06C755; box-shadow: 0 0 6px #06C755; }
+        .online-dot.offline { background: #64748b; }
+        .group-icon { width: 30px; height: 30px; background: var(--accent); border-radius: 8px; display: flex; justify-content: center; align-items: center; font-size: 14px; color: white; }
+        .contact-info { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+        .contact-name { font-size: 14px; font-weight: bold; }
+        .contact-status { font-size: 11px; color: var(--text-secondary); }
+        .add-contact-btn {
+            padding: 10px; margin: 10px; border: none; border-radius: 10px;
+            background: rgba(6, 199, 85, 0.15); color: var(--accent);
+            cursor: pointer; font-weight: bold; font-size: 13px;
+        }
+        .logout-btn {
+            padding: 12px; margin: 10px; border: none; border-radius: 10px;
+            background: rgba(239, 68, 68, 0.15); color: #ef4444;
+            cursor: pointer; font-weight: bold; font-size: 13px;
+        }
+        .chat-area { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+        .chat-header {
+            padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.05);
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .chat-header h3 { font-size: 16px; color: var(--accent); }
+        .header-right { display: flex; align-items: center; gap: 10px; }
+        .user-badge {
+            font-size: 13px; color: var(--text-secondary);
+            background: rgba(15, 23, 42, 0.7); padding: 6px 12px; border-radius: 20px;
+        }
+        .icon-btn { background: none; border: none; color: var(--text-main); font-size: 18px; cursor: pointer; padding: 5px; }
+        .messages {
+            flex: 1; padding: 20px; overflow-y: auto;
+            display: flex; flex-direction: column; gap: 12px;
+        }
+        .message {
+            max-width: 70%; padding: 10px 14px; border-radius: 14px;
+            font-size: 14px; line-height: 1.5; word-wrap: break-word;
+            animation: fadeIn 0.3s ease;
+        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .message.me { background: var(--accent); color: white; align-self: flex-start; border-bottom-right-radius: 4px; }
+        .message.other { background: var(--msg-other); color: var(--text-main); align-self: flex-end; border-bottom-left-radius: 4px; }
+        .message .sender-name { font-size: 11px; opacity: 0.8; margin-bottom: 4px; display: block; font-weight: bold; }
+        .message .msg-time { font-size: 10px; opacity: 0.6; margin-top: 4px; display: block; text-align: left; }
+        .input-area {
+            padding: 15px; background: rgba(15, 23, 42, 0.7);
+            display: flex; gap: 10px; border-top: 1px solid rgba(255,255,255,0.05);
+            align-items: center;
+        }
+        body.light .input-area { background: rgba(240, 242, 245, 0.9); }
+        .input-area input {
+            flex: 1; padding: 14px; border: none; border-radius: 12px;
+            background: rgba(30, 41, 59, 0.9); color: var(--text-main); font-size: 14px; outline: none;
+        }
+        body.light .input-area input { background: #ffffff; border: 1px solid #cbd5e1; }
+        .input-area button {
+            padding: 14px 24px; border: none; border-radius: 12px;
+            background: var(--accent); color: white; font-size: 14px; font-weight: bold; cursor: pointer;
+        }
+        .modal {
+            display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.7); z-index: 100;
+            justify-content: center; align-items: center;
+        }
+        .modal.active { display: flex; }
+        .modal-content {
+            width: 90%; max-width: 420px; background: var(--bg-secondary);
+            border-radius: 20px; padding: 25px; color: var(--text-main);
+            box-shadow: 0 20px 50px rgba(0,0,0,0.8);
+            border: 1px solid rgba(6, 199, 85, 0.2);
+        }
+        .modal-content h2 { margin-bottom: 20px; font-size: 20px; color: var(--accent); }
+        .modal-content input, .modal-content select {
+            width: 100%; padding: 12px; margin-bottom: 15px;
+            border: none; border-radius: 10px;
+            background: rgba(15, 23, 42, 0.8); color: var(--text-main);
+            font-size: 14px; outline: none;
+        }
+        .modal-content label { display: block; margin-bottom: 8px; font-size: 13px; color: var(--text-secondary); }
+        .modal-actions { display: flex; gap: 10px; margin-top: 15px; }
+        .modal-actions button { flex: 1; padding: 12px; border: none; border-radius: 10px; font-size: 14px; font-weight: bold; cursor: pointer; }
+        .btn-primary { background: var(--accent); color: white; }
+        .btn-secondary { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+        .btn-cancel { background: rgba(148, 163, 184, 0.2); color: var(--text-main); }
+        .settings-item { margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .settings-item label { display: block; margin-bottom: 8px; font-size: 14px; color: var(--text-secondary); }
+        .settings-item select {
+            width: 100%; padding: 12px; border: none; border-radius: 10px;
+            background: rgba(15, 23, 42, 0.8); color: var(--text-main);
+            font-size: 14px; cursor: pointer; outline: none;
+        }
+        @media (max-width: 700px) {
+            body { overflow: auto; }
+            .app { flex-direction: column; height: 100vh; max-width: 100%; border-radius: 0; }
+            .sidebar { width: 100%; max-height: 35vh; border-left: none; border-bottom: 1px solid rgba(255,255,255,0.1); }
+            .chat-area { flex: 1; min-height: 0; }
+            .messages { padding: 10px; }
+            .message { max-width: 85%; }
+            .chat-header { padding: 12px; }
+            .sidebar-header { padding: 12px; }
+            .input-area { padding: 10px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo-small">L</div>
+                <h2>LineChat</h2>
+            </div>
+            <div class="sidebar-tabs">
+                <button class="tab-btn active" onclick="switchTab('contacts', this)">مخاطبین</button>
+                <button class="tab-btn" onclick="switchTab('groups', this)">گروه‌ها</button>
+                <button class="tab-btn" onclick="switchTab('online', this)">آنلاین</button>
+            </div>
+            <div class="tab-content" id="contactsTab">
+                <button class="add-contact-btn" onclick="openAddContact()">➕ افزودن مخاطب</button>
+                <div id="contactsList"></div>
+            </div>
+            <div class="tab-content" id="groupsTab" style="display:none;">
+                <button class="add-contact-btn" onclick="openCreateGroup()">➕ ایجاد گروه/کانال</button>
+                <div id="groupsList"></div>
+            </div>
+            <div class="tab-content" id="onlineTab" style="display:none;">
+                <div class="online-list" id="onlineList"></div>
+            </div>
+            <button class="logout-btn" onclick="logout()">خروج</button>
+        </div>
+
+        <div class="chat-area">
+            <div class="chat-header">
+                <h3 id="chatTitle">💬 چت عمومی</h3>
+                <div class="header-right">
+                    <span class="user-badge" id="userBadge">...</span>
+                    <button class="icon-btn" onclick="openSettings()">⚙️</button>
+                </div>
+            </div>
+            <div class="messages" id="messages"></div>
+            <div class="input-area">
+                <input type="text" id="messageInput" placeholder="پیامت را بنویس..." />
+                <button onclick="sendMessage()">ارسال</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="addContactModal">
+        <div class="modal-content">
+            <h2>➕ افزودن مخاطب</h2>
+            <label>آیدی (نام کاربری) مخاطب</label>
+            <input type="text" id="contactInput" placeholder="مثلاً ali" />
+            <div class="modal-actions">
+                <button class="btn-primary" onclick="addContact()">افزودن</button>
+                <button class="btn-cancel" onclick="closeAddContact()">لغو</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="createGroupModal">
+        <div class="modal-content">
+            <h2>➕ ایجاد گروه/کانال</h2>
+            <label>نام گروه/کانال</label>
+            <input type="text" id="groupNameInput" placeholder="مثلاً دوستان" />
+            <label>نوع</label>
+            <select id="groupTypeSelect">
+                <option value="group">گروه (همه می‌توانند پیام بفرستند)</option>
+                <option value="channel">کانال (فقط ادمین)</option>
+            </select>
+            <label>افزودن عضو با نام کاربری</label>
+            <div style="display:flex; gap:8px; margin-bottom:15px;">
+                <input type="text" id="memberInput" placeholder="نام کاربری..." style="margin-bottom:0; flex:1;" />
+                <button class="btn-primary" onclick="addMemberManually()" style="padding:0 16px; border-radius:10px; border:none; cursor:pointer; font-weight:bold;">افزودن</button>
+            </div>
+            <div id="selectedMembers" style="max-height: 100px; overflow-y: auto; margin-bottom: 15px; font-size: 13px; color: var(--text-secondary);"></div>
+            <div class="modal-actions">
+                <button class="btn-primary" onclick="createGroup()">ایجاد</button>
+                <button class="btn-cancel" onclick="closeCreateGroup()">لغو</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="settingsModal">
+        <div class="modal-content">
+            <h2>⚙️ تنظیمات</h2>
+            <div class="settings-item">
+                <label>🎨 تم برنامه</label>
+                <select id="themeSelect" onchange="changeTheme(this.value)">
+                    <option value="dark">تاریک</option>
+                    <option value="light">روشن</option>
+                </select>
+            </div>
+            <div class="settings-item">
+                <label>🌐 زبان</label>
+                <select id="langSelect" onchange="changeLang(this.value)">
+                    <option value="fa">فارسی</option>
+                    <option value="en">English</option>
+                </select>
+            </div>
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="logout()">خروج از حساب</button>
+                <button class="btn-cancel" onclick="closeSettings()">بستن</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const token = localStorage.getItem('token');
+        const username = localStorage.getItem('username');
+        if (!token || !username) window.location.href = '/';
+        document.getElementById('userBadge').textContent = username;
+
+        const socket = io({ auth: { token } });
+        const messagesDiv = document.getElementById('messages');
+        const input = document.getElementById('messageInput');
+        let currentChat = { type: 'public', id: null, name: 'چت عمومی' };
+        let myGroups = [];
+        let myContacts = [];
+        let allOnlineUsers = [];
+        let selectedMembers = [];
+
+        const savedTheme = localStorage.getItem('theme') || 'dark';
+        const savedLang = localStorage.getItem('lang') || 'fa';
+        document.getElementById('themeSelect').value = savedTheme;
+        document.getElementById('langSelect').value = savedLang;
+        if (savedTheme === 'light') document.body.classList.add('light');
+        function changeTheme(theme) {
+            localStorage.setItem('theme', theme);
+            document.body.classList.toggle('light', theme === 'light');
+        }
+        function changeLang(lang) { localStorage.setItem('lang', lang); }
+
+        function switchTab(tab, btn) {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            document.getElementById('contactsTab').style.display = tab === 'contacts' ? 'block' : 'none';
+            document.getElementById('groupsTab').style.display = tab === 'groups' ? 'block' : 'none';
+            document.getElementById('onlineTab').style.display = tab === 'online' ? 'block' : 'none';
+        }
+
+        function addMessage(msg, type) {
+            const div = document.createElement('div');
+            div.className = 'message ' + type;
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'sender-name';
+            nameSpan.textContent = msg.sender;
+            const textNode = document.createTextNode(msg.text);
+            const timeSpan = document.createElement('span');
+            timeSpan.className = 'msg-time';
+            timeSpan.textContent = msg.time || '';
+            div.appendChild(nameSpan);
+            div.appendChild(textNode);
+            div.appendChild(timeSpan);
+            messagesDiv.appendChild(div);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        function clearMessages() { messagesDiv.innerHTML = ''; }
+
+        socket.on('previousMessages', (msgs) => {
+            if (currentChat.type === 'public') {
+                clearMessages();
+                msgs.forEach(m => addMessage(m, m.sender === username ? 'me' : 'other'));
+            }
+        });
+        socket.on('newMessage', (msg) => {
+            if (currentChat.type === 'public') addMessage(msg, msg.sender === username ? 'me' : 'other');
+        });
+
+        socket.on('onlineUsers', (users) => {
+            allOnlineUsers = users;
+            const list = document.getElementById('onlineList');
+            list.innerHTML = '';
+            users.forEach(u => {
+                const item = document.createElement('div');
+                item.className = 'online-item';
+                item.innerHTML = `<span class="online-dot online"></span> ${u}`;
+                list.appendChild(item);
+            });
+            refreshContacts();
+        });
+
+        socket.on('connect', () => {
+            socket.emit('getContacts', (contacts) => {
+                myContacts = contacts;
+                renderContacts();
+            });
+            socket.emit('getMyGroups', (groups) => {
+                myGroups = groups;
+                renderGroups();
+            });
+        });
+
+        function refreshContacts() {
+            socket.emit('getContacts', (contacts) => {
+                myContacts = contacts;
+                renderContacts();
+            });
+        }
+
+        function renderContacts() {
+            const list = document.getElementById('contactsList');
+            list.innerHTML = '';
+            if (myContacts.length === 0) {
+                list.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-secondary); font-size:13px;">هنوز مخاطبی اضافه نکردی.</div>';
+                return;
+            }
+            myContacts.forEach(c => {
+                const item = document.createElement('div');
+                item.className = 'contact-item';
+                const dotClass = c.online ? 'online' : 'offline';
+                item.innerHTML = `
+                    <span class="online-dot ${dotClass}"></span>
+                    <div class="contact-info">
+                        <span class="contact-name">${c.username}</span>
+                        <span class="contact-status">${c.online ? 'آنلاین' : 'آخرین بازدید: ' + c.lastSeen}</span>
+                    </div>
+                `;
+                list.appendChild(item);
+            });
+        }
+
+        function openAddContact() { document.getElementById('addContactModal').classList.add('active'); }
+        function closeAddContact() { document.getElementById('addContactModal').classList.remove('active'); }
+
+        function addContact() {
+            const name = document.getElementById('contactInput').value.trim();
+            if (!name) return alert('نام کاربری را وارد کنید.');
+            socket.emit('addContact', name, (res) => {
+                if (res.error) return alert(res.error);
+                closeAddContact();
+                document.getElementById('contactInput').value = '';
+                refreshContacts();
+            });
+        }
+
+        function renderGroups() {
+            const list = document.getElementById('groupsList');
+            list.innerHTML = '';
+            myGroups.forEach(g => {
+                const item = document.createElement('div');
+                item.className = 'group-item' + (currentChat.type === 'group' && currentChat.id === g.id ? ' active' : '');
+                const icon = g.type === 'channel' ? '📢' : '👥';
+                item.innerHTML = `<div class="group-icon">${icon}</div> ${g.name}`;
+                item.onclick = () => openGroup(g);
+                list.appendChild(item);
+            });
+        }
+
+        function openGroup(g) {
+            currentChat = { type: 'group', id: g.id, name: g.name };
+            document.getElementById('chatTitle').textContent = (g.type === 'channel' ? '📢 ' : '👥 ') + g.name;
+            socket.emit('joinGroupRoom', g.id);
+            socket.emit('getGroupMessages', g.id, (msgs) => {
+                clearMessages();
+                msgs.forEach(m => addMessage(m, m.sender === username ? 'me' : 'other'));
+            });
+            renderGroups();
+        }
+
+        socket.on('newGroupMessage', (msg) => {
+            if (currentChat.type === 'group' && currentChat.id === msg.groupId) {
+                addMessage(msg, msg.sender === username ? 'me' : 'other');
+            }
+        });
+
+        function sendMessage() {
+            const text = input.value.trim();
+            if (!text) return;
+            if (currentChat.type === 'public') {
+                socket.emit('sendMessage', text);
+            } else {
+                socket.emit('sendGroupMessage', { groupId: currentChat.id, text });
+            }
+            input.value = '';
+        }
+        input.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendMessage(); });
+
+        function openCreateGroup() {
+            selectedMembers = [];
+            document.getElementById('selectedMembers').innerHTML = '';
+            document.getElementById('memberInput').value = '';
+            document.getElementById('createGroupModal').classList.add('active');
+        }
+
+        function addMemberManually() {
+            const inputEl = document.getElementById('memberInput');
+            const name = inputEl.value.trim();
+            if (!name) return;
+            if (name === username) return alert('نمی‌توانی خودت را اضافه کنی.');
+            if (selectedMembers.includes(name)) return alert('این کاربر قبلاً اضافه شده.');
+            selectedMembers.push(name);
+            renderSelectedMembers();
+            inputEl.value = '';
+        }
+
+        function renderSelectedMembers() {
+            const container = document.getElementById('selectedMembers');
+            container.innerHTML = '';
+            if (selectedMembers.length === 0) {
+                container.textContent = 'هنوز عضوی انتخاب نشده.';
+                return;
+            }
+            selectedMembers.forEach(m => {
+                const tag = document.createElement('span');
+                tag.style.cssText = 'display:inline-block; background:rgba(6,199,85,0.2); color:var(--accent); padding:4px 10px; border-radius:20px; margin:3px;';
+                tag.textContent = m + ' ';
+                const removeBtn = document.createElement('span');
+                removeBtn.textContent = '✕';
+                removeBtn.style.cssText = 'cursor:pointer; margin-right:5px;';
+                removeBtn.onclick = () => {
+                    selectedMembers = selectedMembers.filter(x => x !== m);
+                    renderSelectedMembers();
+                };
+                tag.appendChild(removeBtn);
+                container.appendChild(tag);
+            });
+        }
+
+        function closeCreateGroup() { document.getElementById('createGroupModal').classList.remove('active'); }
+
+        function createGroup() {
+            const name = document.getElementById('groupNameInput').value.trim();
+            const type = document.getElementById('groupTypeSelect').value;
+            if (!name) return alert('نام گروه را وارد کنید.');
+            if (selectedMembers.length === 0) return alert('حداقل یک عضو اضافه کنید.');
+
+            socket.emit('createGroup', { name, type, members: selectedMembers }, (res) => {
+                if (res.error) return alert(res.error);
+                closeCreateGroup();
+                document.getElementById('groupNameInput').value = '';
+                socket.emit('getMyGroups', (groups) => {
+                    myGroups = groups;
+                    renderGroups();
+                });
+            });
+        }
+
+        function openSettings() { document.getElementById('settingsModal').classList.add('active'); }
+        function closeSettings() { document.getElementById('settingsModal').classList.remove('active'); }
+
+        function logout() {
+            localStorage.removeItem('token');
+            localStorage.removeItem('username');
+            window.location.href = '/';
+        }
+    </script>
+</body>
+              </html>
